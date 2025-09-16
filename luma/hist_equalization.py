@@ -14,8 +14,25 @@ def generate_uniform_cdf(limit_value=256, bin_num=256):
     cdf_vals, gray_levels = np.linspace(0, 1, bin_num), np.linspace(0, limit_value, bin_num)
     return cdf_vals, gray_levels
 
+def clip_threshold_cdf(reference_cdfs,threshold=10):
+    hist= np.diff(reference_cdfs)
+    hists= np.insert(hist,0,reference_cdfs[0])
+    all_sum = sum(hists)
+    all_mean=all_sum/len(hists)
+    threshold_value = all_mean * threshold
+    total_extra = sum([h - threshold_value for h in hists if h >= threshold_value])
+    print("clip total_extra",total_extra)
+    mean_extra = total_extra / len(hists)
 
-def histogram_equlizaion(source_img, mode="gray",
+    clip_hists = [0 for _ in hists]
+    for i in range(len(hists)):
+        if hists[i] >= threshold_value:
+            clip_hists[i] = (threshold_value + mean_extra)
+        else:
+            clip_hists[i] = (hists[i] + mean_extra)
+    clip_hists_cdf=np.cumsum(clip_hists)
+    return clip_hists_cdf
+def histogram_equlizaion(source_img,
                          limit_value=256,bin_num = 255,Isshow=True):
     """
     实现直方图均衡化
@@ -38,11 +55,12 @@ def histogram_equlizaion(source_img, mode="gray",
     source_array_match_cdf_color = source_array_match_cdf_color #/ (limit_value - 1)
     source_array_match_cdf_color = source_array_match_cdf_color.clip(0, limit_value-1)
     if Isshow:
-        show_multi([source_array, source_array_match_cdf,source_img,source_array_match_cdf_color/ (limit_value - 1)],
+        show_multi([source_array, source_array_match_cdf,
+                    source_img,source_array_match_cdf_color/ (limit_value - 1)],
                    titles=["src","HE","src","HE"],nrow=2)
 
         plt.show()
-    return source_array_match_cdf_color
+    return source_array_match_cdf,source_array_match_cdf_color
 
 
 def test_hist_equalization():
@@ -50,7 +68,7 @@ def test_hist_equalization():
         # 读取源图像和参考图像
         source_image = imread("img/1.jpg")
         # 执行直方图匹配
-        result_image = histogram_equlizaion(source_image, mode="color")
+        result_image = histogram_equlizaion(source_image, Isshow=True)
 
         print("直方图匹配完成，结果已保存为 matched_result.jpg")
 
@@ -58,7 +76,7 @@ def test_hist_equalization():
         print(f"发生错误: {e}")
 
 
-def AHE(source_img, mode="gray",limit_value=256,bin_num = 255):
+def AHE(source_img,limit_value=256,bin_num = 255,Isshow=False):
 
     source_array = cv2.cvtColor(source_img, cv2.COLOR_BGR2GRAY)
     window_size = 512#32
@@ -92,8 +110,8 @@ def AHE(source_img, mode="gray",limit_value=256,bin_num = 255):
 
             # equalize the window region
             window_arr = source_array[wsi: wei, wsj: wej]
-            block_arr = histogram_equlizaion(window_arr, mode="gray",
-                                             limit_value=limit_value,bin_num = bin_num,Isshow=False)
+            block_arr = histogram_equlizaion(window_arr,
+                                             limit_value=limit_value,bin_num = bin_num,Isshow=False)[0]
 
             # border case
             if i == 0:
@@ -111,12 +129,12 @@ def AHE(source_img, mode="gray",limit_value=256,bin_num = 255):
                                             dtype=np.float32)
     source_array_match_cdf_color = source_array_match_cdf_color
     source_array_match_cdf_color = source_array_match_cdf_color.clip(0, limit_value - 1)
-
-    show_multi([source_array, source_array_match_cdf, source_img, source_array_match_cdf_color/ (limit_value - 1)],
-               titles=["src", "HE", "src", "HE"], nrow=2)
-    import matplotlib.pyplot as plt
-    plt.show()
-    return
+    if Isshow:
+        show_multi([source_array, source_array_match_cdf, source_img, source_array_match_cdf_color/ (limit_value - 1)],
+                   titles=["src", "HE", "src", "HE"], nrow=2)
+        import matplotlib.pyplot as plt
+        plt.show()
+    return source_array_match_cdf,source_array_match_cdf_color
 
 def test_AHE():
     try:
@@ -133,7 +151,75 @@ def test_AHE():
 def CLAHE(grayimg):
     pass
 
+def CLHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=5):
+    """
+    Contrast Limited HE
+    :param source_img:
+    :return:
+    """
+    if source_img.ndim == 3:
+        source_array = cv2.cvtColor(source_img, cv2.COLOR_BGR2GRAY)
+    else:
+        source_array = source_img
+    source_cdfs, source_values = cdf(source_array, limit_value, bin_num,method="histogram")
+    clip_hists_cdf=clip_threshold_cdf(source_cdfs,threshold=threshold)
+
+    source_array_match_cdf = interpreter_matching(source_array, source_values, source_cdfs,
+                                                  source_values, clip_hists_cdf)
+    gain = (source_array_match_cdf / (source_array + 0.01))[..., None] if source_img.ndim == 3 else (
+                source_array_match_cdf / (source_array + 0.01))
+    source_array_match_cdf_color = np.array(source_img * gain,
+                                            dtype=np.float32)
+    source_array_match_cdf_color = source_array_match_cdf_color  # / (limit_value - 1)
+    source_array_match_cdf_color = source_array_match_cdf_color.clip(0, limit_value - 1)
+    if Isshow:
+        show_multi([source_array, source_array_match_cdf, source_img, source_array_match_cdf_color / (limit_value - 1)],
+                   titles=["src", "CLHE", "src", "CLHE"], nrow=2)
+
+        plt.show()
+    return source_array_match_cdf,source_array_match_cdf_color
+
+def ACLHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=5):
+    pass
+def test_CLHE():
+    try:
+        # 读取源图像和参考图像
+        source_image = imread("img/1.jpg")
+        # 执行直方图匹配
+        result_image = CLHE(source_image, mode="color")
+
+        print("直方图匹配完成，结果已保存为 matched_result.jpg")
+
+    except Exception as e:
+        print(f"发生错误: {e}")
+
+def test_all():
+    try:
+        limit_value=256
+        # 读取源图像和参考图像
+        source_image = imread("img/1.jpg")
+        source_gray  = cv2.cvtColor(source_image,cv2.COLOR_BGR2GRAY)
+        # 执行直方图匹配
+        HE_match_gray,HE_match_color= histogram_equlizaion(source_image,Isshow=False)
+        CLHE_match_gray,CLHE_match_color = CLHE(source_image,Isshow=False,threshold=1)
+        AHE_match_gray,AHE_match_color=AHE(source_image,Isshow=False)
+
+        show_multi([source_gray,HE_match_gray,AHE_match_gray,CLHE_match_gray,
+                    source_image,HE_match_color/(limit_value - 1),AHE_match_color/(limit_value-1),CLHE_match_color/(limit_value-1)],
+                   titles=["src","HE","AHE","CLHE",
+                           "src","HE","AHE","CLHE"],nrow=2)
+        plt.show()
+
+
+        print("直方图匹配完成，结果已保存为 matched_result.jpg")
+
+    except Exception as e:
+        raise
+        print(f"发生错误: {e}")
 
 if __name__ == '__main__':
-    test_hist_equalization()
-    test_AHE()
+    # test_hist_equalization()
+    test_all()
+    # test_CLHE()
+    # test_hist_equalization()
+    # test_AHE()
