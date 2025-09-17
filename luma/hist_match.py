@@ -65,6 +65,30 @@ def interpreter_matching(source_array, source_values, source_cdfs,
     return source_array_match_cdf
 
 
+def get_map_curve(source_array, source_values, source_cdfs,
+                  reference_values, reference_cdfs, maxvalue=255):
+    maps = []
+    if isinstance(source_values, list):
+        for i in range(len(source_values)):
+            source_values_i, source_values_match_cdf_i = interpreter_matching(source_array[:, :, i],
+                                                                              source_values[i], source_cdfs[i],
+                                                                              reference_values[i], reference_cdfs[i])[0]
+            maps.append([source_values_i, source_values_match_cdf_i])
+    else:
+        source_values_match_cdf = np.interp(source_cdfs, reference_cdfs, reference_values)
+        source_array_match_cdf = np.interp(source_array, source_values, source_values_match_cdf)
+        maps.append([source_values, source_values_match_cdf])
+    return maps
+
+
+def apply_map_curve(source_array, source_values, source_values_match_cdf, maxvalue=255):
+    source_array_match_cdf = np.interp(source_array, source_values, source_values_match_cdf)
+    source_array_match_cdf = np.clip(source_array_match_cdf, 0, maxvalue)
+    # show_multi([source_array, source_array_match_cdf],titles=["gray","match"])
+    # plt.show()
+    return source_array_match_cdf
+
+
 def histogram_matching(source_img, reference_img, mode="gray",method="histogram"):
     """
     实现直方图匹配（规定化）

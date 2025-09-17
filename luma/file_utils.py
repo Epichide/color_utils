@@ -23,7 +23,7 @@ def show_multi(imgs, titles=[], nrow=1, colormode="BGR", types=[]):
     ncols = int(np.ceil(len(imgs) / nrow))
     if not types:
         types = ["img"] * len(imgs)
-        f, axs = plt.subplots(nrow, ncols)
+        f, axs = plt.subplots(nrow, ncols, sharex=1, sharey=1)
     else:
         allimg = [1 if dtype == "img" else 0 for dtype in types]
         allimg = sum(allimg)

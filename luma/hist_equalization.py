@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from matplotlib import pyplot as plt
 
-from hist_match import cdf, interpreter_matching
+from hist_match import apply_map_curve, cdf, get_map_curve, interpreter_matching
 from file_utils import show_multi, imread
 
 
@@ -76,37 +76,43 @@ def test_hist_equalization():
         print(f"发生错误: {e}")
 
 
-def AHE(source_img,limit_value=256,bin_num = 255,Isshow=False):
+def AHE(source_img,limit_value=256,bin_num = 255,Isshow=False,ntils=[8,8]):
 
     source_array = cv2.cvtColor(source_img, cv2.COLOR_BGR2GRAY)
-    window_size = 512#32
-    affect_size = 256#16
+    # window_size = 512#32
+    # affect_size = 256#16
+    h, w = source_array.shape[:2]
+    window_size_h = h // ntils[0] // 4 * 4
+    window_size_w = w // ntils[1] // 4 * 4
+    affect_size_h = window_size_h // 2
+    affect_size_w = window_size_w // 2
 
     # calculate how many blocks needed in row-axis and col-axis
-    (m, n) = source_array.shape
-    if (m - window_size) % affect_size == 0:
-        rows = int((m - window_size) / affect_size + 1)
+    (h, w) = source_array.shape
+    if (h - window_size_h) % affect_size_h == 0:
+        rows = int((h - window_size_h) / affect_size_h + 1)
     else:
-        rows = int((m - window_size) / affect_size + 2)
-    if (n - window_size) % affect_size == 0:
-        cols = int((n - window_size) / affect_size + 1)
+        rows = int((h - window_size_h) / affect_size_h + 2)
+    if (w - window_size_w) % affect_size_w == 0:
+        cols = int((w - window_size_w) / affect_size_w + 1)
     else:
-        cols = int((n - window_size) / affect_size + 2)
+        cols = int((w - window_size_w) / affect_size_w + 2)
 
     # equalize histogram of every block image
     arr = source_array.copy()
     for i in range(rows):
         for j in range(cols):
             # offset
-            off = int((window_size - affect_size) / 2)
+            off_h = int((window_size_h - affect_size_h) / 2)
+            off_w = int((window_size_w - affect_size_w) / 2)
 
             # affect region border
-            asi, aei = i * affect_size + off, (i + 1) * affect_size + off
-            asj, aej = j * affect_size + off, (j + 1) * affect_size + off
+            asi, aei = i * affect_size_h + off_h, (i + 1) * affect_size_h + off_h
+            asj, aej = j * affect_size_w + off_w, (j + 1) * affect_size_w + off_w
 
             # window region border
-            wsi, wei = i * affect_size, i * affect_size + window_size
-            wsj, wej = j * affect_size, j * affect_size + window_size
+            wsi, wei = i * affect_size_h, i * affect_size_h + window_size_h
+            wsj, wej = j * affect_size_w, j * affect_size_w + window_size_w
 
             # equalize the window region
             window_arr = source_array[wsi: wei, wsj: wej]
@@ -148,8 +154,7 @@ def test_AHE():
     except Exception as e:
         print(f"发生错误: {e}")
         raise
-def CLAHE(grayimg):
-    pass
+
 
 def CLHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=5):
     """
@@ -161,6 +166,8 @@ def CLHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=5):
         source_array = cv2.cvtColor(source_img, cv2.COLOR_BGR2GRAY)
     else:
         source_array = source_img
+
+
     source_cdfs, source_values = cdf(source_array, limit_value, bin_num,method="histogram")
     clip_hists_cdf=clip_threshold_cdf(source_cdfs,threshold=threshold)
 
@@ -194,11 +201,6 @@ def CLAHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=2,ntils
     lut3_img = np.zeros(source_array.shape) # left bottom
     lut4_img = np.zeros(source_array.shape) # right bottom
     ys,xs=np.indices((h,w))
-    lut1_weight = np.zeros(source_array.shape)
-    lut2_weight = np.zeros(source_array.shape)
-    lut3_weight = np.zeros(source_array.shape)
-    lut4_weight = np.zeros(source_array.shape)
-
 
     round_h = h // window_size_h * window_size_h
     round_w = w // window_size_w * window_size_w
@@ -272,7 +274,7 @@ def CLAHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=2,ntils
 
 
 
-    show_multi([source_array,lut0_img,lut1_img,lut2_img,lut3_img,lut4_img], titles=["gray","lut0","lut1", "lut2", "lut3", "lut4"], nrow=2)
+    #show_multi([source_array,lut0_img,lut1_img,lut2_img,lut3_img,lut4_img], titles=["gray","lut0","lut1", "lut2", "lut3", "lut4"], nrow=2)
 
     # 4 corner padding
     for lut_img in [lut1_img,lut2_img,lut3_img,lut4_img]:
@@ -298,45 +300,29 @@ def CLAHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=2,ntils
     final_img_r=(1-lut_h_weight)*lut2_img+(lut_h_weight)*lut4_img
     final_img= (1-lut_w_weight)*final_img_l+(lut_w_weight)*final_img_r
 
-
-    # calculate the weight of every block
-    show_multi([source_array,lut_h_weight,lut0_img,lut1_img,
-                lut2_img,lut3_img,lut4_img,final_img],
-               titles=["gray","lut0","h_weight","lut1", "lut2", "lut3", "lut4","final"], nrow=2)
-    plt.show()
-
+    if Isshow:
+        # calculate the weight of every block
+        show_multi([source_array,lut_h_weight,lut0_img,lut1_img,
+                    lut2_img,lut3_img,lut4_img,final_img],
+                   titles=["gray","lut0","h_weight","lut1", "lut2", "lut3", "lut4","final"], nrow=2)
+        plt.show()
+    gain = (final_img / (source_array + 0.01))[..., None] if source_img.ndim == 3 else (
+                final_img / (source_array + 0.01))
+    source_array_match_cdf_color = np.array(source_img * gain)
+    source_array_match_cdf_color = source_array_match_cdf_color  # / (limit_value - 1)
+    source_array_match_cdf_color = source_array_match_cdf_color.clip(0, limit_value - 1)
+    return final_img,source_array_match_cdf_color
 def test_CLAHE():
     try:
         # 读取源图像和参考图像
-        source_image = imread("target3.png")
+        source_image = imread("img/1.jpg")
         # 执行直方图匹配
         result_image = CLAHE(source_image)
     except Exception as e:
         print(f"发生错误: {e}")
         raise
 
-def get_map_curve(source_array, source_values, source_cdfs,
-                         reference_values, reference_cdfs,maxvalue=255):
-    maps=[]
-    if isinstance(source_values, list):
-        for i in range(len(source_values)):
-            source_values_i, source_values_match_cdf_i = interpreter_matching(source_array[:, :, i],
-                                                            source_values[i], source_cdfs[i],
-                                                            reference_values[i], reference_cdfs[i])[0]
-            maps.append([source_values_i,source_values_match_cdf_i])
-    else:
-        source_values_match_cdf = np.interp(source_cdfs, reference_cdfs, reference_values)
-        source_array_match_cdf = np.interp(source_array, source_values, source_values_match_cdf)
-        maps.append([source_values, source_values_match_cdf])
-    return maps
-                             
-def apply_map_curve(source_array,source_values, source_values_match_cdf,maxvalue=255):
-    source_array_match_cdf = np.interp(source_array, source_values, source_values_match_cdf)
-    source_array_match_cdf = np.clip(source_array_match_cdf, 0, maxvalue)
-    # show_multi([source_array, source_array_match_cdf],titles=["gray","match"])
-    # plt.show()
-    return source_array_match_cdf
-    
+
 def test_CLHE():
     try:
         # 读取源图像和参考图像
@@ -358,12 +344,13 @@ def test_all():
         # 执行直方图匹配
         HE_match_gray,HE_match_color= histogram_equlizaion(source_image,Isshow=False)
         CLHE_match_gray,CLHE_match_color = CLHE(source_image,Isshow=False,threshold=1)
-        AHE_match_gray,AHE_match_color=AHE(source_image,Isshow=False)
+        AHE_match_gray,AHE_match_color=AHE(source_image,Isshow=False,ntils=[4,4])
+        CLAHE_match_gray,CLAHE_match_color=CLAHE(source_image,Isshow=False,threshold=2,ntils=[8,8])
 
-        show_multi([source_gray,HE_match_gray,AHE_match_gray,CLHE_match_gray,
-                    source_image,HE_match_color/(limit_value - 1),AHE_match_color/(limit_value-1),CLHE_match_color/(limit_value-1)],
-                   titles=["src","HE","AHE","CLHE",
-                           "src","HE","AHE","CLHE"],nrow=2)
+        show_multi([source_gray,HE_match_gray,AHE_match_gray,CLHE_match_gray,CLAHE_match_gray,
+                    source_image,HE_match_color/(limit_value - 1),AHE_match_color/(limit_value-1),CLHE_match_color/(limit_value-1),CLAHE_match_color/(limit_value-1)],
+                   titles=["src","HE","AHE","CLHE","CLAHE",
+                           "src","HE","AHE","CLHE","CLAHE"],nrow=2)
         plt.show()
 
 
@@ -374,6 +361,7 @@ def test_all():
         print(f"发生错误: {e}")
 
 if __name__ == '__main__':
+    # test_CLAHE()
     # test_hist_equalization()
     test_all()
     # test_CLHE()
