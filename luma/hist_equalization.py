@@ -179,8 +179,164 @@ def CLHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=5):
         plt.show()
     return source_array_match_cdf,source_array_match_cdf_color
 
-def ACLHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=5):
-    pass
+def CLAHE(source_img,limit_value=256,bin_num = 255,Isshow=True,threshold=2,ntils=[8,8]):
+
+    if source_img.ndim == 3:
+        source_array = cv2.cvtColor(source_img, cv2.COLOR_BGR2GRAY)
+    else:
+        source_array = source_img
+    (h, w) = source_array.shape
+    window_size_h = h//ntils[0]//2*2+1
+    window_size_w = w//ntils[1]//2*2+1
+    lut0_img = np.zeros(source_array.shape)
+    lut1_img = np.zeros(source_array.shape) # left top
+    lut2_img = np.zeros(source_array.shape) # right top
+    lut3_img = np.zeros(source_array.shape) # left bottom
+    lut4_img = np.zeros(source_array.shape) # right bottom
+    ys,xs=np.indices((h,w))
+    lut1_weight = np.zeros(source_array.shape)
+    lut2_weight = np.zeros(source_array.shape)
+    lut3_weight = np.zeros(source_array.shape)
+    lut4_weight = np.zeros(source_array.shape)
+
+
+    round_h = h // window_size_h * window_size_h
+    round_w = w // window_size_w * window_size_w
+
+    offset_h= (h-round_h)//2
+    offset_w= (w-round_w)//2
+
+    radious_h = window_size_h//2
+    radious_w = window_size_w//2
+
+
+    up_border = offset_h+radious_h
+    left_border = offset_w+radious_w
+    bottom_border = round_h- radious_h+offset_h
+
+    right_border = round_w - radious_w+offset_w
+    # bottom
+
+    lut_h_weight=(ys-np.floor((ys-offset_h-radious_h)/window_size_h)*window_size_h-offset_h-radious_h)/window_size_h
+    lut_w_weight=(xs-np.floor((xs-offset_w-radious_w)/window_size_w)*window_size_w-offset_w-radious_w)/window_size_w
+
+
+    for i in range(offset_h, h, window_size_h):
+        for j in range(offset_w, w, window_size_w):
+            # window region border
+            wsi, wei = i, i + window_size_h
+            wsj, wej = j, j + window_size_w
+            # equalize the window region
+            window_arr = source_array[wsi: wei, wsj: wej]
+            window_arr_length=window_arr.shape[0]*window_arr.shape[1]
+            if wei>h or wej>w:
+                continue
+            source_cdfs, source_values = cdf(window_arr, limit_value, bin_num, method="histogram")
+            clip_hists_cdf = clip_threshold_cdf(source_cdfs, threshold=threshold)
+
+            # reference_cdfs, reference_values = generate_uniform_cdf(limit_value, bin_num)
+
+
+            source_values, source_values_match_cdf = get_map_curve(source_array, source_values, source_cdfs,
+                                                                   source_values, clip_hists_cdf)[0]
+
+            def apply(t,b,l,r,w,h,lutimg):
+                t= min(max(0,t),h-1)
+                b= min(max(0,b),h-1)
+                l= min(max(0,l),w-1)
+                r= min(max(0,r),w-1)
+                block = source_array[t:b, l:r]
+                block_he = apply_map_curve(block, source_values, source_values_match_cdf, maxvalue=limit_value - 1)
+                lutimg[t:b, l:r] = block_he
+
+            t, b = wsi, wei
+            l, r = wsj, wej
+            apply(t, b, l, r,w,h,lut0_img)
+
+            t, b = wsi + radious_h, wei + radious_h
+            l, r = wsj + radious_w, wej + radious_w
+            apply(t, b, l, r,w,h,lut1_img)
+
+            t, b = wsi + radious_h, wei + radious_h
+            l, r = wsj - radious_w, wej - radious_w
+            apply(t,b, l,r,w,h,lut2_img)
+
+            t, b = wsi - radious_h, wei - radious_h
+            l, r = wsj + radious_w, wej + radious_w
+            apply(t,b, l,r,w,h,lut3_img)
+
+            t, b = wsi - radious_h, wei - radious_h
+            l, r = wsj - radious_w, wej - radious_w
+            apply(t, b, l, r,w,h,lut4_img)
+    print(bottom_border,b,offset_h,h,round_h+offset_h)
+
+
+
+    show_multi([source_array,lut0_img,lut1_img,lut2_img,lut3_img,lut4_img], titles=["gray","lut0","lut1", "lut2", "lut3", "lut4"], nrow=2)
+
+    # 4 corner padding
+    for lut_img in [lut1_img,lut2_img,lut3_img,lut4_img]:
+        lut_img[:up_border,: left_border] =lut4_img[:up_border,: left_border]
+        lut_img[:up_border, right_border:] = lut3_img[:up_border, right_border:]
+        lut_img[bottom_border:, :left_border] = lut2_img[bottom_border:, :left_border]
+        lut_img[bottom_border:, right_border:] = lut1_img[bottom_border:, right_border:]
+    # 4 edge padding
+    lut1_img[:up_border, :] = lut3_img[:up_border, :]
+    lut1_img[:,:left_border] = lut2_img[:,:left_border]
+
+    lut2_img[:up_border, :] = lut4_img[:up_border, :]
+    lut2_img[:,right_border:]=lut1_img[:,right_border:]
+
+    lut3_img[:, :left_border] = lut4_img[:, :left_border]
+    lut3_img[bottom_border:,:]=lut1_img[bottom_border:,:]
+
+    lut4_img[:,right_border:]=lut3_img[:,right_border:]
+    lut4_img[bottom_border:,:]=lut2_img[bottom_border:,:]
+
+
+    final_img_l=(1-lut_h_weight)*lut1_img+(lut_h_weight)*lut3_img
+    final_img_r=(1-lut_h_weight)*lut2_img+(lut_h_weight)*lut4_img
+    final_img= (1-lut_w_weight)*final_img_l+(lut_w_weight)*final_img_r
+
+
+    # calculate the weight of every block
+    show_multi([source_array,lut_h_weight,lut0_img,lut1_img,
+                lut2_img,lut3_img,lut4_img,final_img],
+               titles=["gray","lut0","h_weight","lut1", "lut2", "lut3", "lut4","final"], nrow=2)
+    plt.show()
+
+def test_CLAHE():
+    try:
+        # 读取源图像和参考图像
+        source_image = imread("target3.png")
+        # 执行直方图匹配
+        result_image = CLAHE(source_image)
+    except Exception as e:
+        print(f"发生错误: {e}")
+        raise
+
+def get_map_curve(source_array, source_values, source_cdfs,
+                         reference_values, reference_cdfs,maxvalue=255):
+    maps=[]
+    if isinstance(source_values, list):
+        for i in range(len(source_values)):
+            source_values_i, source_values_match_cdf_i = interpreter_matching(source_array[:, :, i],
+                                                            source_values[i], source_cdfs[i],
+                                                            reference_values[i], reference_cdfs[i])[0]
+            maps.append([source_values_i,source_values_match_cdf_i])
+    else:
+        source_values_match_cdf = np.interp(source_cdfs, reference_cdfs, reference_values)
+        source_array_match_cdf = np.interp(source_array, source_values, source_values_match_cdf)
+        maps.append([source_values, source_values_match_cdf])
+    return maps
+                             
+def apply_map_curve(source_array,source_values, source_values_match_cdf,maxvalue=255):
+    source_array_match_cdf = np.interp(source_array, source_values, source_values_match_cdf)
+    source_array_match_cdf = np.clip(source_array_match_cdf, 0, maxvalue)
+    # show_multi([source_array, source_array_match_cdf],titles=["gray","match"])
+    # plt.show()
+    return source_array_match_cdf
+    
 def test_CLHE():
     try:
         # 读取源图像和参考图像
@@ -223,3 +379,4 @@ if __name__ == '__main__':
     # test_CLHE()
     # test_hist_equalization()
     # test_AHE()
+
