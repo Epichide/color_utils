@@ -7,6 +7,7 @@ import random
 import jod_normal_distribution as jodlib
 import asap_cpu
 import tqdm
+from pwcmp import pw_scale
 
 def boostrap_resample_Cmatrix(C_matrix_samples, n_samples=None):
     """_summary_
@@ -34,7 +35,11 @@ def boostrap_resample_Cmatrix(C_matrix_samples, n_samples=None):
     # print(C_matrix_bootstrap,C_matrix_bootstrap.sum())
     return C_matrix_bootstrap
 
-def Cmatrix_to_Quality(C_matrix):
+def Cmatrix_to_Quality_pwcmp(C_matrix):
+    # Q1, R1 = pw_scale(C_matrix,options={'prior': 'none'})
+    Q1, R1 = pw_scale(C_matrix,options={'regularization': 'fix0'})
+    return Q1 ,R1
+def Cmatrix_to_Quality_asap(C_matrix):
     # Example of running ASAP on CPU
     N = np.shape(C_matrix)[0]
     asap = asap_cpu.ASAP(N, selective_eig = True)
@@ -53,9 +58,9 @@ def Cmatrix_to_Quality(C_matrix):
 
 
 def simulation_one_dataset(n_observer=10,Isshow=False):
-    n_boostrap=10
-    n_repetition=3
-    n_condition=2
+    n_boostrap=100
+    n_repetition=1
+    n_condition=5
     qualitys=np.arange(n_condition)
     # qualitys=np.array([0,1,3,4,6])
     sigma_ij=1 / norm.ppf(0.75, 0, 1) # 标准差设为1.4826，以匹配JOD尺度的标准差 xscale
@@ -93,8 +98,8 @@ def simulation_one_dataset(n_observer=10,Isshow=False):
     for b in (range(n_boostrap)):
 
         C_matrix_bootstrap = boostrap_resample_Cmatrix(C_matrix_samples,n_samples=n_sample)
-        iter_qualitys_mean, iter_scores_std = Cmatrix_to_Quality(C_matrix_bootstrap)
-        iter_qualitys_mean-=np.min(iter_qualitys_mean)
+        iter_qualitys_mean, _ = Cmatrix_to_Quality_pwcmp(C_matrix_bootstrap)
+        # iter_qualitys_mean-=np.min(iter_qualitys_mean)
         iter_qualitys_mean_list.append(iter_qualitys_mean)
     iter_qualitys_mean_array=np.array(iter_qualitys_mean_list)
     qualitys_mean_std=np.std(iter_qualitys_mean_array, axis=0)
@@ -111,40 +116,39 @@ def simulation_one_dataset(n_observer=10,Isshow=False):
 
 
     # 生成模拟数据（正态分布）
-    np.random.seed(42)  # 固定随机种子，保证结果可复现
     data = np.random.normal(loc=100, scale=20, size=200)  # 均值100，标准差20，200个数据点
     
-    if not Isshow:
-        return qualitys_mean, qualitys_mean_std,qualitys_25,qualitys_75,qualitys_025,qualitys_975
+    if  Isshow:
+            
+        # 创建画布
+        plt.figure(figsize=(8, 6))
 
-    # 创建画布
-    plt.figure(figsize=(8, 6))
+        # 绘制箱线图
+        box_plot = plt.boxplot(
+            iter_qualitys_mean_array,
+            patch_artist=True,  # 填充箱体颜色
+            whis=[2.5, 97.5],            # 须覆盖2.5% ~ 97.5%分位数（核心参数）
+            positions=qualitys,  # 强制指定每个箱体的位置
+            boxprops=dict(facecolor='lightblue', color='blue'),  # 箱体样式
+            medianprops=dict(color='red', linewidth=2),  # 中位数样式
+            whiskerprops=dict(color='green'),  # 须样式
+            capprops=dict(color='black'),  # 须端横线样式
+            flierprops=dict(marker='o', color='orange', markersize=8)  # 异常值样式
+        )
+        plt.plot(qualitys, qualitys, 'g--', label='Mean')
+        # 添加标题和标签
+        plt.title(f'Boxplot of Simulated Data, real qualitys={qualitys}\n , \
+                t={n_repetition}, n={n_condition}, k={n_observer}, boost={n_boostrap} ')
+        plt.xlabel('real quality scores')
+        plt.ylabel('sampled quality scores')
+        plt.ylim(-0.2, 8)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)  # 添加横向网格线
+        plt.grid(axis='x', linestyle='--', alpha=0.7)  # 添加纵向网格线
 
-    # 绘制箱线图
-    box_plot = plt.boxplot(
-        iter_qualitys_mean_array,
-        patch_artist=True,  # 填充箱体颜色
-        whis=[2.5, 97.5],            # 须覆盖2.5% ~ 97.5%分位数（核心参数）
-        positions=qualitys,  # 强制指定每个箱体的位置
-        boxprops=dict(facecolor='lightblue', color='blue'),  # 箱体样式
-        medianprops=dict(color='red', linewidth=2),  # 中位数样式
-        whiskerprops=dict(color='green'),  # 须样式
-        capprops=dict(color='black'),  # 须端横线样式
-        flierprops=dict(marker='o', color='orange', markersize=8)  # 异常值样式
-    )
-    plt.plot(qualitys, qualitys, 'g--', label='Mean')
-    # 添加标题和标签
-    plt.title(f'Boxplot of Simulated Data, real qualitys={qualitys}\n , \
-              t={n_repetition}, n={n_condition}, k={n_observer}, boost={n_boostrap} ')
-    plt.xlabel('real quality scores')
-    plt.ylabel('sampled quality scores')
-    plt.ylim(-0.2, 8)
-    plt.grid(axis='y', linestyle='--', alpha=0.7)  # 添加横向网格线
-    plt.grid(axis='x', linestyle='--', alpha=0.7)  # 添加纵向网格线
+        # 显示图表
+        plt.show()
+    return qualitys_mean, qualitys_mean_std,qualitys_25,qualitys_75,qualitys_025,qualitys_975
 
-    # 显示图表
-    plt.show()
-    return qualitys_mean, qualitys_mean_std,qualitys_25,qualitys_75
     
 
 if __name__ == "__main__":
@@ -152,36 +156,54 @@ if __name__ == "__main__":
     
     motocalo_num=100
     obser_CIs=[]
-    num_observer_list=np.arange(10, 101, 30)
+    mean_CIs=[]
+    obser_quality_means=[]
+    num_observer_list=np.arange(5, 65, 5)
     for n_observer in num_observer_list:
-        CI_s=[]
+        qualitys_means=[]
+        obser_CI=[]
         for seti in range(motocalo_num):
             print("n_observer",n_observer,"seti",seti)
             qualitys_mean, qualitys_mean_std,qualitys_25,qualitys_75,qualitys_025,qualitys_975= simulation_one_dataset(n_observer=n_observer,Isshow=False)
-            CI_s.append(qualitys_975- qualitys_025)
-        # get CI mean std , 025 25 75 975
-        CI_s=np.array(CI_s)
-        CI_mean=np.mean(CI_s,axis=0)
-        CI_std=np.std(CI_s,axis=0)
-        CI_025=np.percentile(CI_s,2.5,axis=0)
-        CI_25=np.percentile(CI_s,25,axis=0)
-        CI_75=np.percentile(CI_s,75,axis=0)
-        CI_975=np.percentile(CI_s,97.5,axis=0)
-        obser_CIs.append(CI_mean)
+            qualitys_means.append(qualitys_mean)
+            obser_CI.append((qualitys_975-qualitys_025)[1])
+        qualitys_means_array=np.array(qualitys_means)
+        obser_CI_array=np.array(obser_CI)
+        obser_CIs.append(obser_CI_array)
+        qualitys_means_mean=np.mean(qualitys_means_array,axis=0)
+        qualitys_means_std=np.std(qualitys_means_array,axis=0)
+        qualitys_means_025=np.percentile(qualitys_means_array,2.5,axis=0)
+        qualitys_means_25=np.percentile(qualitys_means_array,25,axis=0)
+        qualitys_means_75=np.percentile(qualitys_means_array,75,axis=0)
+        qualitys_means_975=np.percentile(qualitys_means_array,97.5,axis=0)
+        mean_CIs.append((qualitys_means_975-qualitys_025)[1])
+        
         # print("n_observer",n_observer,"CI_mean",CI_mean,"CI_std",CI_std,"CI_025",CI_025,"CI_25",CI_25,"CI_75",CI_75,"CI_975",CI_975)
     # 绘制箱线图
     plt.figure(figsize=(8, 6))
+    # plt.plot(num_observer_list, mean_CIs, 'g--', label='Mean')
+    mean_CIs=np.array(obser_CIs)
+    mean_CIs=np.mean(mean_CIs,axis=1)
+    plt.plot(num_observer_list, mean_CIs, 'g--', label='Mean')
+    
+    # 绘制箱线图
     box_plot = plt.boxplot(
-        obser_CIs,
-        patch_artist=True,  # 填充箱体颜色
-        whis=[2.5, 97.5],            # 须覆盖2.5% ~ 97.5%分位数（核心参数）
-        positions=num_observer_list,  # 强制指定每个箱体的位置
-        boxprops=dict(facecolor='lightblue', color='blue'),  # 箱体样式
-        medianprops=dict(color='red', linewidth=2),  # 中位数样式
-        whiskerprops=dict(color='green'),  # 须样式
-        capprops=dict(color='black'),  # 须端横线样式
-        flierprops=dict(marker='o', color='orange', markersize=8)  # 异常值样式
+    obser_CIs,
+    patch_artist=True,  # 填充箱体颜色
+    whis=[2.5, 97.5],  # 须覆盖2.5% ~ 97.5%分位数
+    positions=num_observer_list,  # 强制指定每个箱体的位置
+    boxprops=dict(facecolor='lightblue', alpha=0.7, color='lightblue', linewidth=1.5),  # 箱体样式
+    medianprops=dict(color='k', linestyle='--', linewidth=2),  # 中位数样式：黑色虚线
+    whiskerprops=dict(color='black', linewidth=1.5),  # 须样式：黑色
+    capprops=dict(color='black', linewidth=1.5),  # 须端横线样式：黑色
+    showfliers=False,  # 不显示异常值
+    showmeans=True,
+    meanline=True,  # 将均值显示为线而不是标记
+    meanprops=dict(color='red', linewidth=3, linestyle='-'),  # 均值线样式：实线
     )
+
+
+
     plt.boxplot(obser_CIs, patch_artist=True, whis=[2.5, 97.5], positions=num_observer_list)
     plt.title('Boxplot of CI for different number of observers')
     plt.xlabel('Number of Observers')
